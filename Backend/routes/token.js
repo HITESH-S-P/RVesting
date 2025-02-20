@@ -406,6 +406,30 @@ router.post(
                   });
                 }
               );
+              db.query(
+                "SELECT id FROM active WHERE token_id = ? and user_id = ?", // Change stock_name to your actual identifier
+                [token_id, userId],
+                (err, results) => {
+                  if (err) {
+                    console.error(err.message);
+                    return res.status(500).send("Error fetching active_id");
+                  }
+
+                  // console.log(results);
+                  const active_id = results[0].id;
+                  // Now insert into contains_stock
+                  db.query(
+                    "INSERT INTO contains_stock (Active_id, Pro_id) VALUES (?, ?)",
+                    [active_id, userId],
+                    (err) => {
+                      if (err) {
+                        console.error(err.message);
+                      }
+                    }
+                  );
+                }
+              );
+
               //cash updating
               db.query(
                 "UPDATE users SET cash = cash - ? WHERE id = ?",

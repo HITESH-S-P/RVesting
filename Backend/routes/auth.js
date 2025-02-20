@@ -56,20 +56,37 @@ router.post(
               let securePass = await bcrypt.hash(password, salt);
 
               db.query(
-                "INSERT INTO users (name,email,password) VALUES (?,?,?)",
+                "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
                 [req.body.username.trim(), req.body.email, securePass],
                 (err, result) => {
-                  if (err) throw err;
+                  if (err) {
+                    console.log(err);
+                    return res
+                      .status(500)
+                      .json({ success: false, error: "Database error" });
+                  }
 
                   const userId = result.insertId;
-                  const data = {
-                    user: {
-                      id: userId,
-                    },
-                  };
+                  const data = { user: { id: userId } };
                   const authToken = jwt.sign(data, "RVesting");
-                  success = true;
-                  res.json({ success, authToken });
+
+                  // Now execute the second query inside this callback
+                  db.query(
+                    "INSERT INTO portfolio (active, user_id) VALUES (?, ?)",
+                    [true, userId],
+                    (err) => {
+                      if (err) {
+                        console.log(err);
+                        return res.status(500).json({
+                          success: false,
+                          error: "Portfolio creation failed",
+                        });
+                      }
+
+                      // Send response after both queries succeed
+                      res.json({ success: true, authToken });
+                    }
+                  );
                 }
               );
             }

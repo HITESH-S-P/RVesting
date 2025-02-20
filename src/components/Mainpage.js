@@ -23,7 +23,7 @@ function MainPage(props, ref) {
           <label>
             A revolutionary digital solution for managing your portfolio for
             <br />
-            Crypto
+            Crypto-Stocks
           </label>
         </div>
         <Link
@@ -45,15 +45,15 @@ function MainPage(props, ref) {
           </button>
         </Link>
       </div>
-      <div className="image">
+      <div className="image" style={{ paddingTop: "100px" }}>
         <img
           src="/logo.png"
           alt="Logo"
-          // style={{
-          //   width: "500px",
-          //   height: "500px",
-          //   borderRadius: "25px",
-          // }}
+          style={{
+            width: "450px",
+            height: "450px",
+            borderRadius: "50%",
+          }}
         />
       </div>
     </div>

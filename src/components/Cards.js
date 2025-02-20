@@ -76,7 +76,7 @@ function Cards(props, ref) {
 
   return (
     <div ref={ref} className="cards">
-      <h1>Best Cryptos</h1>
+      <h1>Best Cryptos-Stocks</h1>
       <div className="card-slider">
         <div className="card-list">
           {stocks === null ? (
@@ -94,7 +94,7 @@ function Cards(props, ref) {
               />
             ))
           ) : (
-            <p>Loading cryptos...</p>
+            <p>Loading Tickers...</p>
           )}
         </div>
       </div>

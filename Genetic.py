@@ -3,32 +3,40 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
-import streamlit as st
+from datetime import datetime
+import streamlit as st #type:ignore
 
 # --- Core Data and Optimization Functions ---
 
 def get_crypto_data(symbols, start_date, end_date):
     try:
-        data = yf.download(symbols, start=start_date, end=end_date)['Adj Close']
+        data = yf.download(symbols, start=start_date, end=end_date)
+        if 'Adj Close' in data.columns:
+            data = data['Adj Close']
+        elif 'Close' in data.columns:
+            data = data['Close']
+        else:
+            st.error("The 'Adj Close' or 'Close' column is not available in the dataset. Available columns are: " + ", ".join(data.columns))
+            return pd.DataFrame()
         return data
     except Exception as e:
-        st.error(f"Error downloading data: {e}")  # Display error in Streamlit
-        return pd.DataFrame()  # Return empty DataFrame to avoid further errors
-
+        st.error(f"Error downloading data: {e}")
+        return pd.DataFrame()
 
 def fitness_function(individual, scaled_data):
     weights = np.array(individual)
     weights /= weights.sum()
     portfolio_returns = (scaled_data * weights).sum(axis=1)
-    total_return = (portfolio_returns[-1] / portfolio_returns[0] - 1) * 100
+    if portfolio_returns.empty or (portfolio_returns.iloc[0] == 0):
+        return -np.inf
+    total_return = (portfolio_returns.iloc[-1] / portfolio_returns.iloc[0] - 1) * 100
     return total_return
 
 def create_individual(num_symbols):
     individual = np.random.rand(num_symbols)
     return individual.tolist()
 
-def mutate(individual, mutation_rate):  # Add mutation rate parameter
+def mutate(individual, mutation_rate):
     for i in range(len(individual)):
         individual[i] += np.random.uniform(-mutation_rate, mutation_rate)
     return individual
@@ -37,16 +45,22 @@ def crossover(parent1, parent2):
     child = [(p1 + p2) / 2 for p1, p2 in zip(parent1, parent2)]
     return child
 
-def genetic_algorithm(population_size, generations, mutation_rate, scaled_data):  # Add mutation rate
-    num_symbols = len(scaled_data.columns)  # Get from scaled data
+def genetic_algorithm(population_size, generations, mutation_rate, scaled_data):
+    num_symbols = len(scaled_data.columns)
     population = [create_individual(num_symbols) for _ in range(population_size)]
 
     for generation in range(generations):
         fitness_scores = [fitness_function(individual, scaled_data) for individual in population]
+
+        valid_population_indices = [i for i, score in enumerate(fitness_scores) if not np.isinf(score)]
+        if not valid_population_indices:
+            st.warning("All individuals had invalid fitness scores. Check your data or parameters.")
+            return None
+
         selected_parents = []
-        tournament_size = max(2, population_size // 10)  # Ensure tournament size is at least 2
+        tournament_size = max(2, population_size // 10)
         for _ in range(population_size):
-            tournament_indices = np.random.choice(population_size, tournament_size, replace=False)
+            tournament_indices = np.random.choice(valid_population_indices, tournament_size, replace=False)
             tournament_fitness = [fitness_scores[i] for i in tournament_indices]
             winner_index = tournament_indices[np.argmax(tournament_fitness)]
             selected_parents.append(population[winner_index])
@@ -57,22 +71,25 @@ def genetic_algorithm(population_size, generations, mutation_rate, scaled_data):
             parent2 = selected_parents[i+1] if i+1 < population_size else selected_parents[i]
             child1 = crossover(parent1, parent2)
             child2 = crossover(parent2, parent1)
-            new_population.extend([mutate(child1, mutation_rate), mutate(child2, mutation_rate)]) # Pass mutation rate
+            new_population.extend([mutate(child1, mutation_rate), mutate(child2, mutation_rate)])
 
         population = new_population
 
     fitness_scores = [fitness_function(individual, scaled_data) for individual in population]
-    best_individual = population[np.argmax(fitness_scores)]
-    return best_individual
+    valid_population_indices = [i for i, score in enumerate(fitness_scores) if not np.isinf(score)]
+    if not valid_population_indices:
+        st.warning("All individuals had invalid fitness scores after optimization. Check your data or parameters.")
+        return None
 
+    best_individual = population[valid_population_indices[np.argmax([fitness_scores[i] for i in valid_population_indices])]]
+    return best_individual
 
 
 # --- Streamlit Frontend ---
 st.title("Portfolio Optimizer")
 
-# --- Input Options ---
 all_crypto_symbols = ["BTC-USD", "ETH-USD", "ADA-USD", "DOGE-USD", "SOL-USD", "XRP-USD"]
-selected_symbols = st.multiselect("Select stocks for your portfolio", all_crypto_symbols, default=["BTC-USD", "ETH-USD"])
+selected_symbols = st.multiselect("Select cryptocurrencies for your portfolio", all_crypto_symbols, default=["BTC-USD", "ETH-USD"])
 
 if not selected_symbols:
     st.warning("Please select at least one cryptocurrency.")
@@ -85,7 +102,6 @@ col1, col2, col3 = st.columns(3)
 population_size = col1.slider("Population size", min_value=50, max_value=500, value=100, step=50)
 generations = col2.slider("Number of generations", min_value=50, max_value=500, value=100, step=50)
 mutation_rate = col3.slider("Mutation rate", min_value=0.01, max_value=0.50, value=0.10, step=0.01)
-
 
 col4, col5 = st.columns(2)
 start_date_str = col4.date_input("Backtest start date", value=datetime(2021, 1, 1))
@@ -109,9 +125,12 @@ if st.button("Optimize Portfolio"):
 
             crypto_data.fillna(method='ffill', inplace=True)
             scaler = MinMaxScaler()
-            scaled_data = pd.DataFrame(scaler.fit_transform(crypto_data), columns=selected_symbols, index=crypto_data.index) # Fit and transform in one step
+            scaled_data = pd.DataFrame(scaler.fit_transform(crypto_data), columns=selected_symbols, index=crypto_data.index)
 
             best_weights = genetic_algorithm(population_size, generations, mutation_rate, scaled_data)
+
+            if best_weights is None:
+                st.stop()
 
             best_weights = np.array(best_weights)
             best_weights /= best_weights.sum()
@@ -123,14 +142,16 @@ if st.button("Optimize Portfolio"):
                 st.stop()
 
             selected_data = get_crypto_data(selected_cryptos, start_date, end_date)
+            if selected_data.empty:
+                st.error("Could not retrieve data for selected cryptocurrencies.")
+                st.stop()
 
             portfolio_returns = (selected_data * best_weights[best_weights > 0]).sum(axis=1)
-            total_return = (portfolio_returns[-1] / portfolio_returns[0] - 1) * 100
-            annualized_return = (1 + total_return / 100)**(252/len(portfolio_returns.index)) - 1
-
+            total_return = (portfolio_returns.iloc[-1] / portfolio_returns.iloc[0] - 1) * 100
+            annualized_return = (1 + total_return / 100)**(252/len(portfolio_returns.index)) - 1 if len(portfolio_returns.index) > 0 else 0
 
             st.subheader("Optimization Results")
-            st.write("Selected stocks:", ", ".join(selected_cryptos))
+            st.write("Selected cryptocurrencies:", ", ".join(selected_cryptos))
             st.write("Budget (optional):", f"${budget:,.2f}")
 
             st.subheader("Performance Metrics")
@@ -139,7 +160,7 @@ if st.button("Optimize Portfolio"):
 
             st.subheader("Portfolio Cumulative Returns")
             fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(portfolio_returns.index, (portfolio_returns / portfolio_returns[0]), label='Portfolio Cumulative Returns')
+            ax.plot(portfolio_returns.index, (portfolio_returns / portfolio_returns.iloc[0]), label='Portfolio Cumulative Returns')
             ax.set_xlabel('Date')
             ax.set_ylabel('Cumulative Returns')
             ax.set_title('Portfolio Cumulative Returns')
